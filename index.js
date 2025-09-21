@@ -236,39 +236,42 @@ app.post("/api/alegra/itemBySKU", async (req, res) => {
 
 
 // 2) Buscar cliente por teléfono
+// 2) Buscar cliente por teléfono (match EXACTO)
 app.post("/api/alegra/customerByPhone", async (req, res) => {
   try {
-    const { phone } = req.body || {};
-    if (!phone) return res.status(400).json({ error: "Falta phone" });
+    const phoneRaw = req.body?.phone || "";
+    const phone = (phoneRaw + "").replace(/\D/g, ""); // deja solo dígitos
+    if (!phone) return res.json({ found: false });
+
     const api = alegraClient();
 
-    // Búsqueda amplia con q=
-    const { data } = await api.get(`/contacts?q=${encodeURIComponent(phone)}&type=client&limit=20`);
-    const arr = Array.isArray(data) ? data : [];
-    const norm = (v) => (v || "").replace(/\D/g, "");
-    const target = norm(phone);
+    // Busca candidatos por query (Alegra)
+    const q = encodeURIComponent(phone);
+    const candidates = await api.get(`/contacts?query=${q}&type=client`);
 
-    const match = arr.find(c =>
-      [c.phonePrimary, c.phoneSecondary, c.mobile]
-        .filter(Boolean)
-        .map(norm)
-        .some(v => v.endsWith(target) || v === target)
-    ) || arr[0];
+    const norm = (s) => (s || "").replace(/\D/g, "");
+    // Coincidencia EXACTA en phonePrimary / phoneSecondary / mobile
+    const match = (Array.isArray(candidates) ? candidates : [])
+      .find(c =>
+        [c.phonePrimary, c.phoneSecondary, c.mobile]
+          .some(p => norm(p) === phone)
+      );
 
-    if (!match) return res.json({ found: false });
+    if (!match) {
+      return res.json({ found: false });
+    }
 
+    // Respuesta minimal (¡ojo! solo datos reales del match)
     res.json({
       found: true,
       id: match.id,
       name: match.name,
-      email: match.email,
+      identification: match.identification,
       phonePrimary: match.phonePrimary,
-      priceList: match.priceList || null,
-      identification: match.identification || null,
-      raw: match
+      priceList: match.priceList || null
     });
   } catch (err) {
-    const e = err?.response?.data || err.message;
+    const e = err?.response?.data || err?.message;
     res.status(500).json({ error: e });
   }
 });
